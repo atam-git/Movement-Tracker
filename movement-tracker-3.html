@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Journey Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0e14; --surface: #111822; --surface2: #1a2333;
+    --border: #1e2d42; --accent: #00d4aa; --accent2: #ff6b35;
+    --text: #e8edf5; --muted: #5a7a9a;
+  }
+  body { font-family: 'Space Grotesk', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10; }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  .logo-dot.recording { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 6px var(--accent); transform: scale(1); } 50% { box-shadow: 0 0 20px var(--accent); transform: scale(1.3); } }
+  h1 { font-family: 'Space Mono', monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .status-badge { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); background: var(--bg); transition: all 0.3s; }
+  .status-badge.active { color: var(--accent); border-color: var(--accent); background: #00d4aa11; }
+  .save-indicator { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--accent); opacity: 0; transition: opacity 0.4s; }
+  .save-indicator.show { opacity: 1; }
+
+  #mapContainer { flex: 1; position: relative; overflow: hidden; background: #0d1825; min-height: 0; }
+  #mapCanvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .map-overlay-btns { position: absolute; bottom: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+  .map-btn { width: 38px; height: 38px; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 16px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 700; box-shadow: 0 2px 8px #0005; }
+  .map-btn.accent { color: var(--accent); }
+  .map-state-label { position: absolute; top: 12px; left: 12px; background: #111822ee; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-family: 'Space Mono', monospace; font-size: 11px; color: var(--accent); z-index: 10; display: none; }
+  .map-state-label.show { display: block; }
+
+  /* State crossing toast */
+  .toast { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: var(--surface); border: 2px solid var(--accent); border-radius: 16px; padding: 20px 24px; text-align: center; z-index: 100; opacity: 0; transition: all 0.4s cubic-bezier(.34,1.56,.64,1); pointer-events: none; min-width: 220px; }
+  .toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .toast-flag { font-size: 32px; margin-bottom: 6px; }
+  .toast-title { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+  .toast-state { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .toast-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .bottom-panel { background: var(--surface); border-top: 1px solid var(--border); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; overflow-y: auto; max-height: 52vh; }
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 9px 6px; text-align: center; }
+  .stat-value { font-family: 'Space Mono', monospace; font-size: 15px; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 2px; }
+  .stat-label { font-size: 8px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .controls-row { display: flex; gap: 8px; }
+  .btn { flex: 1; padding: 12px 14px; border: none; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: var(--accent); color: #0a0e14; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: transparent; color: var(--accent2); border: 1px solid var(--accent2); }
+  .waypoint-section { display: flex; gap: 8px; }
+  .waypoint-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 13px; outline: none; }
+  .waypoint-input::placeholder { color: var(--muted); }
+  .waypoint-input:focus { border-color: var(--accent); }
+  .section-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+  .log-section { max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .log-section::-webkit-scrollbar { width: 3px; }
+  .log-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .log-entry { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: var(--surface2); border-radius: 7px; border-left: 3px solid var(--border); }
+  .log-entry.waypoint { border-left-color: var(--accent2); }
+  .log-entry.location { border-left-color: var(--accent); }
+  .log-entry.state { border-left-color: #a78bfa; }
+  .log-icon { font-size: 13px; flex-shrink: 0; }
+  .log-text { font-size: 11px; color: var(--text); line-height: 1.4; }
+  .log-time { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); margin-top: 1px; }
+  .empty-log { text-align: center; color: var(--muted); font-size: 12px; padding: 14px; font-style: italic; }
+  .coords-bar { display: flex; align-items: center; padding: 7px 12px; background: var(--surface2); border-radius: 8px; border: 1px solid var(--border); gap: 8px; }
+  .coords-text { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); flex: 1; }
+  .coords-text span { color: var(--accent); }
+  .current-state-pill { font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 20px; background: #a78bfa22; color: #a78bfa; border: 1px solid #a78bfa44; white-space: nowrap; }
+  .map-legend { position: absolute; bottom: 12px; left: 12px; background: #111822ee; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; z-index: 10; min-width: 180px; }
+  .legend-title { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .legend-row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--text); margin-bottom: 4px; }
+  .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .legend-line { width: 18px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .lm-popup { position: absolute; top: 50px; left: 12px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 14px 10px; z-index: 20; max-width: 220px; box-shadow: 0 4px 20px #0008; }
+  .lm-popup-icon { font-size: 22px; margin-bottom: 4px; }
+  .lm-popup-name { font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 3px; line-height: 1.3; }
+  .lm-popup-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .lm-popup-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: #0a0e14cc; z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; max-width: 320px; width: 100%; text-align: center; }
+  .modal h2 { font-family: 'Space Mono', monospace; font-size: 15px; margin-bottom: 8px; color: var(--accent); }
+  .modal p { font-size: 12px; color: var(--muted); margin-bottom: 18px; line-height: 1.6; }
+  .restored-banner { background: #00d4aa11; border: 1px solid #00d4aa44; border-radius: 8px; padding: 7px 12px; font-size: 11px; color: var(--accent); text-align: center; display: none; }
+  .restored-banner.show { display: block; }
+
+  /* State distance bar */
+  .state-dist-bar { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .state-dist-row { display: flex; align-items: center; gap: 10px; }
+  .state-dist-item { flex-shrink: 0; min-width: 56px; }
+  .state-dist-val { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .state-dist-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .state-dist-lbl span { color: #a78bfa; }
+  .state-progress-wrap { flex: 1; }
+  .state-progress-track { position: relative; height: 6px; background: var(--border); border-radius: 4px; margin-bottom: 5px; overflow: visible; }
+  .state-progress-fill { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, #00d4aa, #a78bfa); border-radius: 4px; transition: width 0.6s ease; }
+  .state-progress-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: #fff; border: 2px solid var(--accent); border-radius: 50%; transition: left 0.6s ease; box-shadow: 0 0 6px var(--accent); }
+  .state-progress-labels { display: flex; justify-content: space-between; font-family: 'Space Mono', monospace; font-size: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo-dot" id="logoDot"></div>
+    <h1>Journey Tracker</h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span class="save-indicator" id="saveIndicator">✓ saved</span>
+    <div class="status-badge" id="statusBadge">IDLE</div>
+  </div>
+</header>
+
+<div id="mapContainer">
+  <canvas id="mapCanvas"></canvas>
+  <div class="map-state-label" id="mapStateLabel">📍 —</div>
+  <div class="map-overlay-btns">
+    <button class="map-btn" onclick="changeZoom(1)">+</button>
+    <button class="map-btn" onclick="changeZoom(-1)">−</button>
+    <button class="map-btn accent" onclick="recenter()" title="Re-center">⌖</button>
+    <button class="map-btn" onclick="toggleLandmarks()" title="Toggle landmarks" id="lmBtn">🏙</button>
+    <button class="map-btn" onclick="toggleLegend()" title="Map legend" id="legendBtn">📋</button>
+  </div>
+  <!-- Map legend -->
+  <div class="map-legend" id="mapLegend" style="display:none;">
+    <div class="legend-title">Map Legend</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#ffd166"></span> City / State capital</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#c4b5fd"></span> Landmark / Attraction</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#ff6b35"></span> 🚧 Toll gate</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#60a5fa"></span> ✈️ Airport</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#f472b6"></span> 🚦 Road junction</div>
+    <div class="legend-row"><span class="legend-line" style="background:#fbbf24"></span> Federal expressway</div>
+    <div class="legend-row"><span class="legend-line" style="background:#fb923c"></span> A-road / trunk</div>
+    <div class="legend-row"><span class="legend-line" style="background:#00d4aa"></span> Your route</div>
+  </div>
+  <!-- Landmark tap popup -->
+  <div class="lm-popup" id="lmPopup" style="display:none;">
+    <div class="lm-popup-icon" id="lmPopupIcon">📍</div>
+    <div class="lm-popup-name" id="lmPopupName">—</div>
+    <div class="lm-popup-desc" id="lmPopupDesc">—</div>
+    <button class="lm-popup-close" onclick="document.getElementById('lmPopup').style.display='none'">✕</button>
+  </div>
+  <div class="toast" id="stateCrossToast">
+    <div class="toast-flag" id="toastFlag">🗺️</div>
+    <div class="toast-title">Entering</div>
+    <div class="toast-state" id="toastState">—</div>
+    <div class="toast-sub" id="toastSub">—</div>
+  </div>
+</div>
+
+<div class="bottom-panel">
+  <div class="restored-banner" id="restoredBanner">📍 Journey restored from last session</div>
+
+  <div class="coords-bar">
+    <div class="coords-text" id="coordsText">📡 Waiting for GPS signal...</div>
+    <div class="current-state-pill" id="currentStatePill">—</div>
+  </div>
+
+  <!-- State distance bar -->
+  <div class="state-dist-bar" id="stateDistBar" style="display:none;">
+    <div class="state-dist-row">
+      <div class="state-dist-item">
+        <div class="state-dist-val" id="distIntoStateVal">—</div>
+        <div class="state-dist-lbl">km into <span id="stateIntoName">state</span></div>
+      </div>
+      <div class="state-progress-wrap">
+        <div class="state-progress-track">
+          <div class="state-progress-fill" id="stateProgressFill" style="width:0%"></div>
+          <div class="state-progress-dot" id="stateProgressDot" style="left:0%"></div>
+        </div>
+        <div class="state-progress-labels">
+          <span id="stateEntryLabel">Entry</span>
+          <span id="stateNextLabel">Next state</span>
+        </div>
+      </div>
+      <div class="state-dist-item" style="text-align:right;">
+        <div class="state-dist-val" id="distToNextStateVal">—</div>
+        <div class="state-dist-lbl">km to <span id="stateNextName">next</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value" id="distStat">0.0</div>
+      <div class="stat-label">km done</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="etaStat">—</div>
+      <div class="stat-label">km left</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="speedStat">—</div>
+      <div class="stat-label">km/h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statesStat">0</div>
+      <div class="stat-label">states</div>
+    </div>
+  </div>
+
+  <div class="controls-row">
+    <button class="btn btn-primary" id="trackBtn" onclick="toggleTracking()">▶ Start Tracking</button>
+    <button class="btn btn-secondary" style="flex:0;padding:12px 16px;" onclick="confirmClear()">✕</button>
+  </div>
+
+  <div>
+    <div class="section-label">Drop a waypoint note</div>
+    <div class="waypoint-section">
+      <input class="waypoint-input" id="waypointInput" type="text" placeholder="e.g. Entered Abuja, stopped for fuel ⛽" maxlength="100"/>
+      <button class="btn btn-secondary" style="flex:0;padding:10px 14px;" onclick="addWaypoint()">📍</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-label">Travel log</div>
+    <div class="log-section" id="logSection">
+      <div class="empty-log">Your journey log will appear here once you start tracking.</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="clearModal">
+  <div class="modal">
+    <h2>Clear Journey?</h2>
+    <p>This will erase your entire route, log, and saved data.</p>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeClearModal()">Cancel</button>
+      <button class="btn btn-danger" style="flex:1" onclick="clearAll()">Clear it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Nigerian State Boundaries (improved polygons for all major route states) ──
+var NIGERIA_STATES = [
+  { name: 'Kano', capital: 'Kano City', emoji: '🏙', color: '#f59e0b33', pop: '~13M',
+    bounds: [[11.5,7.5],[12.0,7.8],[12.5,8.2],[13.2,8.5],[13.5,9.3],[13.2,10.1],[12.5,10.6],[11.8,10.3],[11.2,9.8],[10.9,9.0],[11.0,8.4],[11.3,8.0],[11.5,7.5]] },
+  { name: 'Jigawa', capital: 'Dutse', emoji: '🌵', color: '#d97706',
+    bounds: [[12.0,8.8],[12.5,9.0],[13.0,9.5],[13.5,10.0],[13.2,10.8],[12.8,11.5],[12.0,11.2],[11.5,10.8],[11.2,10.2],[11.5,9.5],[12.0,9.0]] },
+  { name: 'Kaduna', capital: 'Kaduna City', emoji: '⚔️', color: '#3b82f633', pop: '~8M',
+    bounds: [[9.0,6.4],[9.5,6.7],[10.2,6.9],[11.0,7.3],[11.5,7.8],[11.2,8.5],[10.8,8.8],[10.3,8.7],[9.8,8.3],[9.3,8.0],[8.8,7.6],[8.5,7.0],[8.6,6.5],[9.0,6.4]] },
+  { name: 'Zamfara', capital: 'Gusau', emoji: '🌾', color: '#7c3aed22',
+    bounds: [[11.5,4.5],[12.0,5.0],[12.5,5.5],[12.8,6.5],[12.5,7.0],[12.0,7.5],[11.5,7.5],[11.0,7.0],[10.5,6.5],[10.5,5.5],[11.0,5.0],[11.5,4.5]] },
+  { name: 'Kebbi', capital: 'Birnin Kebbi', emoji: '🏜', color: '#065f4622',
+    bounds: [[10.5,3.5],[11.0,3.8],[11.5,4.5],[11.0,5.0],[10.5,5.5],[10.0,5.8],[9.5,5.5],[9.0,5.0],[9.5,4.0],[10.0,3.5]] },
+  { name: 'FCT Abuja', capital: 'Abuja', emoji: '🏛', color: '#8b5cf633', pop: '~3M',
+    bounds: [[8.6,6.8],[9.0,6.9],[9.3,7.1],[9.5,7.4],[9.4,7.8],[9.1,8.1],[8.8,8.0],[8.5,7.7],[8.4,7.3],[8.5,7.0],[8.6,6.8]] },
+  { name: 'Niger', capital: 'Minna', emoji: '🌊', color: '#06b6d433', pop: '~5M',
+    bounds: [[8.0,3.5],[8.5,4.0],[9.5,4.5],[10.5,4.8],[11.0,5.3],[10.8,6.2],[10.2,6.7],[9.8,7.0],[9.3,7.1],[9.0,6.9],[8.6,6.8],[8.0,6.4],[7.5,5.8],[7.3,5.0],[7.5,4.0],[8.0,3.5]] },
+  { name: 'Kwara', capital: 'Ilorin', emoji: '🌿', color: '#16a34a33', pop: '~3M',
+    bounds: [[7.5,3.5],[8.0,3.8],[8.5,4.5],[8.5,5.5],[8.0,6.2],[7.5,6.5],[7.0,6.5],[6.5,6.0],[6.5,5.5],[7.0,4.5],[7.5,3.8],[7.5,3.5]] },
+  { name: 'Kogi', capital: 'Lokoja', emoji: '🌿', color: '#10b98133', pop: '~4M',
+    bounds: [[6.5,5.8],[7.0,5.5],[7.5,5.8],[8.0,6.2],[8.5,6.8],[8.5,7.3],[8.2,7.8],[7.8,8.0],[7.3,7.8],[7.0,7.5],[6.5,7.2],[6.3,6.8],[6.3,6.3],[6.5,5.8]] },
+  { name: 'Ondo', capital: 'Akure', emoji: '🌲', color: '#84cc1622',
+    bounds: [[6.0,4.5],[6.5,4.8],[7.0,5.0],[7.5,5.5],[7.2,6.0],[6.8,6.3],[6.3,6.3],[6.0,5.8],[5.7,5.3],[5.8,4.8],[6.0,4.5]] },
+  { name: 'Edo', capital: 'Benin City', emoji: '🏯', color: '#ca8a0422', pop: '~4M',
+    bounds: [[5.8,5.2],[6.3,5.5],[6.5,5.8],[6.5,6.5],[6.2,6.8],[5.8,6.8],[5.5,6.5],[5.3,6.0],[5.5,5.5],[5.8,5.2]] },
+  { name: 'Delta', capital: 'Asaba', emoji: '🛢', color: '#0369a122',
+    bounds: [[5.2,5.8],[5.5,5.8],[5.8,6.2],[6.0,6.5],[5.8,6.8],[5.5,6.8],[5.2,6.5],[5.0,6.2],[5.0,5.8],[5.2,5.8]] },
+  { name: 'Anambra', capital: 'Awka', emoji: '🏺', color: '#f9731633', pop: '~5M',
+    bounds: [[5.7,6.5],[6.0,6.5],[6.5,6.7],[6.8,6.9],[6.7,7.2],[6.3,7.3],[5.9,7.1],[5.7,6.9],[5.7,6.5]] },
+  { name: 'Enugu', capital: 'Enugu', emoji: '⛰️', color: '#65a30d33', pop: '~4M',
+    bounds: [[6.0,7.0],[6.5,7.0],[7.0,7.2],[7.3,7.5],[7.0,8.0],[6.5,8.2],[6.0,8.0],[5.8,7.5],[5.9,7.2],[6.0,7.0]] },
+  { name: 'Imo', capital: 'Owerri', emoji: '🌴', color: '#22c55e33', pop: '~5M',
+    bounds: [[4.9,6.8],[5.3,6.8],[5.7,6.9],[5.9,7.1],[5.8,7.5],[5.5,7.7],[5.1,7.5],[4.9,7.2],[4.8,7.0],[4.9,6.8]] },
+  { name: 'Rivers', capital: 'Port Harcourt', emoji: '⚓', color: '#0284c722', pop: '~8M',
+    bounds: [[4.5,6.5],[4.9,6.5],[5.1,6.8],[5.3,7.0],[5.0,7.2],[4.7,7.2],[4.5,7.0],[4.3,6.8],[4.5,6.5]] },
+  { name: 'Benue', capital: 'Makurdi', emoji: '🌾', color: '#eab30833', pop: '~5M',
+    bounds: [[6.0,7.8],[6.5,7.8],[7.0,8.0],[7.5,8.3],[8.0,9.0],[7.5,9.5],[7.0,9.2],[6.5,8.8],[6.2,8.5],[6.0,8.0],[6.0,7.8]] },
+  { name: 'Nasarawa', capital: 'Lafia', emoji: '⛰️', color: '#64748b33',
+    bounds: [[7.8,7.4],[8.5,7.5],[9.0,7.8],[9.2,8.2],[8.8,8.7],[8.3,8.8],[7.8,8.5],[7.5,8.0],[7.5,7.5],[7.8,7.4]] },
+  { name: 'Plateau', capital: 'Jos', emoji: '🏔', color: '#475569',
+    bounds: [[8.5,8.5],[9.0,8.2],[9.5,8.5],[10.0,9.0],[9.8,9.5],[9.3,9.8],[8.8,9.5],[8.5,9.0],[8.3,8.7],[8.5,8.5]] },
+  { name: 'Ogun', capital: 'Abeokuta', emoji: '🥁', color: '#16a34a22',
+    bounds: [[6.5,2.8],[7.0,3.0],[7.5,3.5],[7.5,4.0],[7.0,4.5],[6.5,4.5],[6.2,4.0],[6.0,3.5],[6.2,3.0],[6.5,2.8]] },
+  { name: 'Lagos', capital: 'Ikeja', emoji: '🌆', color: '#dc262622', pop: '~15M',
+    bounds: [[6.3,2.7],[6.7,2.7],[6.8,3.3],[6.5,3.7],[6.2,3.7],[6.0,3.3],[6.1,2.8],[6.3,2.7]] },
+];
+
+// ─── Major road corridors (waypoint arrays for drawing on canvas) ─────────────
+var MAJOR_ROADS = [
+  { name: 'A1 — Kano–Kaduna Expressway', color: '#fbbf24', width: 2,
+    points: [[11.993,8.519],[11.500,8.200],[11.100,8.000],[10.700,7.650],[10.524,7.440]] },
+  { name: 'A2 — Kaduna–Abuja Expressway', color: '#fbbf24', width: 2,
+    points: [[10.524,7.440],[10.000,7.200],[9.600,7.100],[9.182,7.180],[9.058,7.498]] },
+  { name: 'A3 — Abuja–Lokoja (Okene Road)', color: '#fb923c', width: 2,
+    points: [[9.058,7.498],[8.800,7.300],[8.474,6.939],[8.100,6.800],[7.804,6.742],[7.556,6.238]] },
+  { name: 'A3 — Lokoja–Onitsha', color: '#fb923c', width: 2,
+    points: [[7.556,6.238],[7.100,6.400],[6.700,6.550],[6.400,6.650],[6.145,6.780]] },
+  { name: 'A3 — Onitsha–Owerri', color: '#fb923c', width: 2,
+    points: [[6.145,6.780],[5.900,6.850],[5.700,6.950],[5.483,7.033]] },
+  { name: 'A231 — Benin–Ore–Lagos', color: '#94a3b8', width: 1.5,
+    points: [[6.340,5.620],[6.100,5.100],[6.700,4.800],[7.000,3.950],[6.500,3.350]] },
+  { name: 'A121 — Enugu–Port Harcourt', color: '#94a3b8', width: 1.5,
+    points: [[6.450,7.500],[6.000,7.300],[5.500,7.100],[5.050,6.900],[4.800,7.000]] },
+];
+
+// ─── Landmarks along Kano→Owerri + surrounding region ────────────────────────
+var LANDMARKS = [
+  // ── KANO ──
+  { name: 'Kano City Gate', lat: 11.993, lon: 8.519, icon: '🏛', type: 'landmark', desc: 'Historic entrance to Kano city' },
+  { name: 'Emir of Kano Palace', lat: 12.004, lon: 8.531, icon: '👑', type: 'landmark', desc: 'Royal palace, centuries old' },
+  { name: 'Kano Central Mosque', lat: 11.991, lon: 8.514, icon: '🕌', type: 'landmark', desc: 'Largest mosque in Kano' },
+  { name: 'Kano Airport (BKO)', lat: 12.047, lon: 8.524, icon: '✈️', type: 'transport', desc: 'Mallam Aminu Kano International Airport' },
+  { name: 'Kano Central Market (Kurmi)', lat: 11.989, lon: 8.521, icon: '🏪', type: 'landmark', desc: 'One of the oldest markets in Africa' },
+  { name: 'Toll Gate – Kano South', lat: 11.850, lon: 8.450, icon: '🚧', type: 'toll', desc: 'Outbound Kano toll plaza' },
+
+  // ── KANO–KADUNA ROAD ──
+  { name: 'Wudil Junction', lat: 11.780, lon: 8.340, icon: '🚦', type: 'junction', desc: 'Junction to Wudil and Jigawa' },
+  { name: 'Toll Gate – Zaria Road', lat: 11.400, lon: 8.100, icon: '🚧', type: 'toll', desc: 'Toll on Kano–Kaduna Expressway' },
+  { name: 'Rano Town', lat: 11.560, lon: 8.260, icon: '🏘', type: 'town', desc: 'Historic emirate town' },
+  { name: 'Zaria Town', lat: 11.069, lon: 7.719, icon: '🕌', type: 'town', desc: 'Ancient walled city, former emirate capital' },
+  { name: 'ABU Zaria Campus', lat: 11.162, lon: 7.685, icon: '🎓', type: 'landmark', desc: 'Ahmadu Bello University — largest in Nigeria' },
+  { name: 'Zaria Abattoir Junction', lat: 11.080, lon: 7.730, icon: '🚦', type: 'junction', desc: 'Major road fork' },
+  { name: 'Toll Gate – Zaria', lat: 11.020, lon: 7.680, icon: '🚧', type: 'toll', desc: 'Zaria toll point' },
+  { name: 'Kawo Junction (Kaduna)', lat: 10.620, lon: 7.450, icon: '🚦', type: 'junction', desc: 'Northern entry to Kaduna' },
+
+  // ── KADUNA ──
+  { name: 'Kaduna City Centre', lat: 10.524, lon: 7.440, icon: '🏙', type: 'city', desc: 'Capital of Kaduna State' },
+  { name: 'Kaduna Polytechnic', lat: 10.540, lon: 7.455, icon: '🎓', type: 'landmark', desc: 'Major federal polytechnic' },
+  { name: 'Kaduna Refinery', lat: 10.561, lon: 7.421, icon: '🏭', type: 'landmark', desc: 'NNPC Kaduna Refinery' },
+  { name: 'Kaduna Airport (KAD)', lat: 10.696, lon: 7.321, icon: '✈️', type: 'transport', desc: 'Sir Kashim Ibrahim – Nnamdi Azikiwe Airport' },
+  { name: 'Toll Gate – Kaduna South', lat: 10.320, lon: 7.380, icon: '🚧', type: 'toll', desc: 'Kaduna–Abuja corridor toll' },
+
+  // ── KADUNA–ABUJA ──
+  { name: 'Gwagwalada Junction', lat: 9.600, lon: 7.120, icon: '🚦', type: 'junction', desc: 'Gateway to Gwagwalada, FCT' },
+  { name: 'Toll Gate – Gwagwalada', lat: 9.550, lon: 7.080, icon: '🚧', type: 'toll', desc: 'FCT outskirts toll' },
+  { name: 'Suleja Town', lat: 9.182, lon: 7.180, icon: '🏘', type: 'town', desc: 'Border town between Niger State and FCT' },
+  { name: 'Suleja Junction', lat: 9.170, lon: 7.160, icon: '🚦', type: 'junction', desc: 'Major fork: Abuja left, Minna right' },
+  { name: 'Abuja–Kaduna Road Toll', lat: 9.050, lon: 7.350, icon: '🚧', type: 'toll', desc: 'Toll on Abuja–Kaduna Expressway' },
+
+  // ── FCT ABUJA ──
+  { name: 'Abuja City Gate', lat: 9.070, lon: 7.480, icon: '🏛', type: 'landmark', desc: 'Iconic gate marking entry into Abuja' },
+  { name: 'Aso Rock', lat: 9.058, lon: 7.498, icon: '🪨', type: 'landmark', desc: 'Iconic 400m granite monolith — centrepiece of Abuja' },
+  { name: 'Aso Villa (State House)', lat: 9.050, lon: 7.494, icon: '🏛', type: 'landmark', desc: 'Official residence of Nigerian President' },
+  { name: 'National Assembly Complex', lat: 9.068, lon: 7.491, icon: '🏛', type: 'landmark', desc: 'Senate & House of Representatives' },
+  { name: 'Eagle Square', lat: 9.062, lon: 7.489, icon: '⭐', type: 'landmark', desc: 'National parade ground' },
+  { name: 'Wuse Market', lat: 9.076, lon: 7.481, icon: '🏪', type: 'landmark', desc: 'Largest open market in Abuja' },
+  { name: 'Abuja Airport (ABV)', lat: 9.007, lon: 7.263, icon: '✈️', type: 'transport', desc: 'Nnamdi Azikiwe International Airport' },
+  { name: 'Abuja–Lokoja Road Toll', lat: 8.970, lon: 7.420, icon: '🚧', type: 'toll', desc: 'FCT departure toll heading south' },
+
+  // ── KOGI ──
+  { name: 'Abaji Town', lat: 8.474, lon: 6.939, icon: '🏘', type: 'town', desc: 'FCT–Kogi border area town' },
+  { name: 'Toll Gate – Abaji', lat: 8.550, lon: 7.050, icon: '🚧', type: 'toll', desc: 'Abaji toll point' },
+  { name: 'Koton Karfe Bridge', lat: 8.010, lon: 6.800, icon: '🌉', type: 'landmark', desc: 'Bridge over River Niger — scenic crossing' },
+  { name: 'Lokoja City', lat: 7.804, lon: 6.742, icon: '🌊', type: 'city', desc: 'Capital of Kogi State; 1st British colonial capital' },
+  { name: 'Confluence of Niger & Benue', lat: 7.803, lon: 6.757, icon: '🌊', type: 'landmark', desc: 'Where Rivers Niger and Benue meet — Nigeria\'s most famous confluence' },
+  { name: 'Mount Patti', lat: 7.825, lon: 6.735, icon: '⛰️', type: 'landmark', desc: 'Scenic hillside with panoramic views of Lokoja' },
+  { name: 'Lord Lugard House, Lokoja', lat: 7.808, lon: 6.743, icon: '🏛', type: 'landmark', desc: 'Historical residence of British colonial administrator' },
+  { name: 'Toll Gate – Lokoja', lat: 7.850, lon: 6.780, icon: '🚧', type: 'toll', desc: 'Lokoja toll plaza — northbound/southbound' },
+  { name: 'Obajana Cement Plant', lat: 7.650, lon: 6.500, icon: '🏭', type: 'landmark', desc: 'One of Africa\'s largest cement plants' },
+  { name: 'Okene Town', lat: 7.556, lon: 6.238, icon: '🏘', type: 'town', desc: 'Major commercial hub in western Kogi' },
+  { name: 'Toll Gate – Okene', lat: 7.520, lon: 6.220, icon: '🚧', type: 'toll', desc: 'Okene toll point' },
+  { name: 'Ajaokuta Steel Plant', lat: 7.550, lon: 6.665, icon: '🏭', type: 'landmark', desc: 'Nigeria\'s massive (incomplete) steel complex' },
+
+  // ── ANAMBRA ──
+  { name: 'Niger Bridge (Onitsha)', lat: 6.145, lon: 6.780, icon: '🌉', type: 'landmark', desc: 'Iconic bridge over River Niger — Onitsha gateway' },
+  { name: 'Onitsha Head Bridge', lat: 6.160, lon: 6.775, icon: '🌉', type: 'landmark', desc: 'Second Niger Bridge approach road' },
+  { name: 'Onitsha Main Market', lat: 6.148, lon: 6.790, icon: '🏪', type: 'landmark', desc: 'Largest market in Africa by size' },
+  { name: 'Toll Gate – Onitsha (2nd Niger Bridge)', lat: 6.180, lon: 6.810, icon: '🚧', type: 'toll', desc: 'Toll on Second Niger Bridge approach' },
+  { name: 'Awka City', lat: 6.213, lon: 7.075, icon: '🏙', type: 'city', desc: 'Capital of Anambra State' },
+  { name: 'Anambra State Government House', lat: 6.215, lon: 7.079, icon: '🏛', type: 'landmark', desc: 'Seat of government, Awka' },
+  { name: 'NNAMDI Azikiwe University (UNIZIK)', lat: 6.219, lon: 7.073, icon: '🎓', type: 'landmark', desc: 'Federal university in Awka' },
+  { name: 'Nnewi Town', lat: 6.017, lon: 6.916, icon: '🏘', type: 'town', desc: 'Industrial capital of Anambra — auto-parts hub' },
+
+  // ── IMO / OWERRI ──
+  { name: 'Ihiala Junction', lat: 5.860, lon: 6.845, icon: '🚦', type: 'junction', desc: 'Road fork towards Owerri and Onitsha' },
+  { name: 'Toll Gate – Owerri (Ihiala)', lat: 5.820, lon: 6.870, icon: '🚧', type: 'toll', desc: 'Entry toll into Imo State' },
+  { name: 'Orlu Town', lat: 5.788, lon: 7.037, icon: '🏘', type: 'town', desc: 'Major city in Imo State' },
+  { name: 'Owerri City Centre', lat: 5.483, lon: 7.033, icon: '🌴', type: 'city', desc: 'Capital of Imo State — journey destination' },
+  { name: 'Government House, Owerri', lat: 5.487, lon: 7.041, icon: '🏛', type: 'landmark', desc: 'Imo State seat of government' },
+  { name: 'World Bank Housing Estate', lat: 5.492, lon: 7.050, icon: '🏘', type: 'landmark', desc: 'Notable residential district, Owerri' },
+  { name: 'NYSC Orientation Camp (Isuochi)', lat: 5.510, lon: 7.040, icon: '🪖', type: 'landmark', desc: 'NYSC mobilisation camp' },
+  { name: 'Owerri Airport (QOW)', lat: 5.427, lon: 7.003, icon: '✈️', type: 'transport', desc: 'Sam Mbakwe Cargo Airport, Owerri' },
+
+  // ── REGIONAL INTEREST ──
+  { name: 'Yankari Game Reserve', lat: 9.985, lon: 10.428, icon: '🦁', type: 'landmark', desc: 'Nigeria\'s most famous wildlife park' },
+  { name: 'Minna City', lat: 9.614, lon: 6.556, icon: '🏙', type: 'city', desc: 'Capital of Niger State' },
+  { name: 'Ilorin City', lat: 8.500, lon: 4.550, icon: '🏙', type: 'city', desc: 'Capital of Kwara State' },
+  { name: 'Enugu City', lat: 6.450, lon: 7.510, icon: '⛰️', type: 'city', desc: 'Capital of Enugu State — "Coal City"' },
+  { name: 'Benin City', lat: 6.340, lon: 5.620, icon: '🏯', type: 'city', desc: 'Capital of Edo State — ancient kingdom' },
+  { name: 'Makurdi City', lat: 7.740, lon: 8.540, icon: '🌾', type: 'city', desc: 'Capital of Benue State on River Benue' },
+  { name: 'Port Harcourt (PH)', lat: 4.815, lon: 7.049, icon: '⚓', type: 'city', desc: 'Capital of Rivers State — oil capital' },
+  { name: 'Lagos Island', lat: 6.455, lon: 3.393, icon: '🌆', type: 'city', desc: 'Commercial capital of Nigeria' },
+];
+
+// ─── State detection helper (point-in-polygon ray casting) ───────────────────
+function pointInPolygon(lat, lon, polygon) {
+  var inside = false;
+  for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    var xi = polygon[i][0], yi = polygon[i][1];
+    var xj = polygon[j][0], yj = polygon[j][1];
+    if (((yi > lon) !== (yj > lon)) && (lat < (xj - xi) * (lon - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+function detectState(lat, lon) {
+  for (var i = 0; i < NIGERIA_STATES.length; i++) {
+    if (pointInPolygon(lat, lon, NIGERIA_STATES[i].bounds)) return NIGERIA_STATES[i];
+  }
+  return null;
+}
+
+// ─── App state ────────────────────────────────────────────────────────────────
+var tracking = false, watchId = null;
+var positions = [], waypoints = [], logItems = [];
+var totalDistance = 0, lastSpeed = null;
+var currentState = null, statesCrossed = [];
+var showLandmarks = true;
+
+// State distance tracking
+var stateEntryPos = null;       // [lat,lon] where we entered current state
+var distIntoState = 0;          // km travelled since entering state
+var lastStateCheckPos = null;   // last position used for distIntoState accumulation
+
+// Map state
+var mapZoom = 7, mapCenterLat = 9.0, mapCenterLon = 7.5;
+var autoFollow = true, tileCache = {};
+
+var canvas = document.getElementById('mapCanvas');
+var ctx = canvas.getContext('2d');
+
+// ─── Tile rendering ───────────────────────────────────────────────────────────
+function getTile(z, x, y) {
+  var key = z+'/'+x+'/'+y;
+  if (tileCache[key] && tileCache[key].complete && tileCache[key].naturalWidth > 0) return tileCache[key];
+  if (!tileCache[key]) {
+    var img = new Image(); img.crossOrigin = 'anonymous';
+    img.src = 'https://cartodb-basemaps-a.global.ssl.fastly.net/dark_matter/'+z+'/'+x+'/'+y+'.png';
+    img.onload = function() { drawMap(); };
+    tileCache[key] = img;
+  }
+  return tileCache[key];
+}
+function latLonToPixel(lat, lon) {
+  var w = canvas.width, h = canvas.height, scale = Math.pow(2, mapZoom);
+  var cx = (mapCenterLon+180)/360*scale;
+  var cy = (1-Math.log(Math.tan(mapCenterLat*Math.PI/180)+1/Math.cos(mapCenterLat*Math.PI/180))/Math.PI)/2*scale;
+  var px = (lon+180)/360*scale;
+  var py = (1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*scale;
+  return { x: w/2+(px-cx)*256, y: h/2+(py-cy)*256 };
+}
+function drawTiles() {
+  var w = canvas.width, h = canvas.height, ts = 256, scale = Math.pow(2, mapZoom);
+  var cx = (mapCenterLon+180)/360*scale;
+  var cy = (1-Math.log(Math.tan(mapCenterLat*Math.PI/180)+1/Math.cos(mapCenterLat*Math.PI/180))/Math.PI)/2*scale;
+  var tx0 = Math.floor(cx-w/2/ts), ty0 = Math.floor(cy-h/2/ts);
+  var tx1 = Math.ceil(cx+w/2/ts), ty1 = Math.ceil(cy+h/2/ts);
+  var maxT = scale-1;
+  for (var tx = tx0; tx <= tx1; tx++) {
+    for (var ty = ty0; ty <= ty1; ty++) {
+      var wtx = ((tx%scale)+scale)%scale, wty = Math.max(0,Math.min(maxT,ty));
+      var img = getTile(mapZoom, wtx, wty);
+      var dx = Math.round(w/2+(tx-cx)*ts), dy = Math.round(h/2+(ty-cy)*ts);
+      if (img && img.complete && img.naturalWidth>0) ctx.drawImage(img,dx,dy,ts,ts);
+      else { ctx.fillStyle='#0d1825'; ctx.fillRect(dx,dy,ts,ts); }
+    }
+  }
+}
+
+// ─── Draw major roads ─────────────────────────────────────────────────────────
+function drawRoads() {
+  if (mapZoom < 6) return;
+  for (var r = 0; r < MAJOR_ROADS.length; r++) {
+    var road = MAJOR_ROADS[r];
+    var pts = road.points;
+    if (pts.length < 2) continue;
+    ctx.beginPath();
+    var p0 = latLonToPixel(pts[0][0], pts[0][1]);
+    ctx.moveTo(p0.x, p0.y);
+    for (var i = 1; i < pts.length; i++) {
+      var pi = latLonToPixel(pts[i][0], pts[i][1]);
+      ctx.lineTo(pi.x, pi.y);
+    }
+    // Road glow/outline
+    ctx.strokeStyle = road.color + '44';
+    ctx.lineWidth = (road.width + 3) * (mapZoom >= 10 ? 1.5 : 1);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.stroke();
+    // Road core
+    ctx.strokeStyle = road.color + 'bb';
+    ctx.lineWidth = road.width * (mapZoom >= 10 ? 1.5 : 1);
+    ctx.stroke();
+    // Road name label (only higher zoom)
+    if (mapZoom >= 11) {
+      var midIdx = Math.floor(pts.length / 2);
+      var mp = latLonToPixel(pts[midIdx][0], pts[midIdx][1]);
+      ctx.font = '8px Space Grotesk,sans-serif';
+      ctx.fillStyle = road.color + 'cc';
+      ctx.textAlign = 'center';
+      ctx.fillText(road.name.split('—')[0].trim(), mp.x, mp.y - 5);
+      ctx.textAlign = 'left';
+    }
+  }
+}
+
+// ─── Draw state overlays ──────────────────────────────────────────────────────
+function drawStates() {
+  for (var s = 0; s < NIGERIA_STATES.length; s++) {
+    var state = NIGERIA_STATES[s];
+    var pts = state.bounds;
+    if (pts.length < 3) continue;
+    ctx.beginPath();
+    var p0 = latLonToPixel(pts[0][0], pts[0][1]);
+    ctx.moveTo(p0.x, p0.y);
+    for (var i = 1; i < pts.length; i++) {
+      var pi = latLonToPixel(pts[i][0], pts[i][1]);
+      ctx.lineTo(pi.x, pi.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = state.color;
+    ctx.fill();
+    ctx.strokeStyle = state === currentState ? '#00d4aa' : '#ffffff22';
+    ctx.lineWidth = state === currentState ? 2 : 1;
+    ctx.stroke();
+    // State name label
+    if (mapZoom >= 6) {
+      var centLat = pts.reduce(function(a,b){ return a+b[0]; },0)/pts.length;
+      var centLon = pts.reduce(function(a,b){ return a+b[1]; },0)/pts.length;
+      var cp = latLonToPixel(centLat, centLon);
+      ctx.font = mapZoom >= 8 ? 'bold 11px Space Grotesk,sans-serif' : '9px Space Grotesk,sans-serif';
+      ctx.fillStyle = '#ffffffaa';
+      ctx.textAlign = 'center';
+      ctx.fillText(state.emoji+' '+state.name, cp.x, cp.y);
+      ctx.textAlign = 'left';
+    }
+  }
+}
+
+// ─── Draw landmarks ───────────────────────────────────────────────────────────
+function drawLandmarks() {
+  if (!showLandmarks) return;
+  var minZoom = { 'city': 6, 'landmark': 8, 'toll': 7, 'transport': 7, 'town': 9, 'junction': 9 };
+  for (var i = 0; i < LANDMARKS.length; i++) {
+    var lm = LANDMARKS[i];
+    var mz = minZoom[lm.type] || 8;
+    if (mapZoom < mz) continue;
+    var pt = latLonToPixel(lm.lat, lm.lon);
+    if (pt.x < -30 || pt.x > canvas.width+30 || pt.y < -30 || pt.y > canvas.height+30) continue;
+
+    var dotR = lm.type==='city' ? 6 : lm.type==='toll' ? 5 : lm.type==='transport' ? 5 : 4;
+    var dotColor = lm.type==='toll' ? '#ff6b35'
+      : lm.type==='transport' ? '#60a5fa'
+      : lm.type==='city' ? '#ffd166'
+      : lm.type==='junction' ? '#f472b6'
+      : lm.type==='landmark' ? '#c4b5fd'
+      : '#94a3b8';
+
+    // Glow ring for important types
+    if (lm.type==='city' || lm.type==='toll') {
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, dotR+4, 0, Math.PI*2);
+      ctx.fillStyle = dotColor + '22'; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, dotR, 0, Math.PI*2);
+    ctx.fillStyle = dotColor; ctx.fill();
+    ctx.strokeStyle = '#fff5'; ctx.lineWidth = 1.2; ctx.stroke();
+
+    if (mapZoom >= 10) {
+      // Full label + icon
+      ctx.font = lm.type==='city' ? 'bold 11px Space Grotesk,sans-serif' : '9px Space Grotesk,sans-serif';
+      ctx.fillStyle = lm.type==='toll' ? '#ff6b35' : lm.type==='city' ? '#ffd166cc' : '#ffffffcc';
+      ctx.fillText(lm.icon+' '+lm.name, pt.x + dotR + 3, pt.y + 4);
+    } else if (mapZoom >= 7) {
+      // Icon only
+      ctx.font = '11px sans-serif';
+      ctx.fillText(lm.icon, pt.x - 6, pt.y + 4);
+    }
+  }
+}
+
+// ─── Main draw ────────────────────────────────────────────────────────────────
+function drawMap() {
+  var w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle='#0d1825'; ctx.fillRect(0,0,w,h);
+  drawTiles();
+  drawRoads();
+  drawStates();
+  drawLandmarks();
+
+  if (positions.length === 0) return;
+
+  // Path glow
+  if (positions.length > 1) {
+    ctx.beginPath(); ctx.strokeStyle='#00d4aa33'; ctx.lineWidth=10; ctx.lineCap='round'; ctx.lineJoin='round';
+    var fp = latLonToPixel(positions[0][0],positions[0][1]); ctx.moveTo(fp.x,fp.y);
+    for (var i=1;i<positions.length;i++){var pt=latLonToPixel(positions[i][0],positions[i][1]);ctx.lineTo(pt.x,pt.y);}
+    ctx.stroke();
+    ctx.beginPath(); ctx.strokeStyle='#00d4aa'; ctx.lineWidth=3;
+    var fp2=latLonToPixel(positions[0][0],positions[0][1]); ctx.moveTo(fp2.x,fp2.y);
+    for (var i=1;i<positions.length;i++){var pt2=latLonToPixel(positions[i][0],positions[i][1]);ctx.lineTo(pt2.x,pt2.y);}
+    ctx.stroke();
+  }
+
+  // Start dot
+  var sp=latLonToPixel(positions[0][0],positions[0][1]);
+  ctx.beginPath();ctx.arc(sp.x,sp.y,6,0,Math.PI*2);ctx.fillStyle='#ff6b35';ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+
+  // User waypoints
+  for (var i=0;i<waypoints.length;i++){
+    var wp=waypoints[i],wpt=latLonToPixel(wp.lat,wp.lon);
+    ctx.beginPath();ctx.arc(wpt.x,wpt.y,5,0,Math.PI*2);ctx.fillStyle='#ffd166';ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+  }
+
+  // Current position
+  var last=positions[positions.length-1], cp=latLonToPixel(last[0],last[1]);
+  ctx.beginPath();ctx.arc(cp.x,cp.y,16,0,Math.PI*2);ctx.fillStyle='#00d4aa1a';ctx.fill();
+  ctx.beginPath();ctx.arc(cp.x,cp.y,8,0,Math.PI*2);ctx.fillStyle='#00d4aa';ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
+
+  // Coords label
+  ctx.fillStyle='#5a7a9a99';ctx.font='9px monospace';
+  ctx.fillText(last[0].toFixed(4)+', '+last[1].toFixed(4), 8, h-8);
+}
+
+function resizeCanvas() {
+  var c=document.getElementById('mapContainer');
+  canvas.width=c.offsetWidth; canvas.height=c.offsetHeight; drawMap();
+}
+window.addEventListener('resize',resizeCanvas);
+setTimeout(resizeCanvas,0);
+
+// ─── Zoom & pan ───────────────────────────────────────────────────────────────
+function changeZoom(d){ mapZoom=Math.max(5,Math.min(16,mapZoom+d)); drawMap(); }
+function recenter(){ if(positions.length>0){var l=positions[positions.length-1];mapCenterLat=l[0];mapCenterLon=l[1];autoFollow=true;} drawMap(); }
+function toggleLandmarks(){ showLandmarks=!showLandmarks; document.getElementById('lmBtn').style.opacity=showLandmarks?'1':'0.4'; drawMap(); }
+function toggleLegend(){ var l=document.getElementById('mapLegend'); l.style.display=l.style.display==='none'?'block':'none'; }
+
+// Canvas tap: show landmark popup if near a landmark point
+canvas.addEventListener('click', function(e) {
+  var rect = canvas.getBoundingClientRect();
+  var mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+  var my = (e.clientY - rect.top) * (canvas.height / rect.height);
+  var minZoom = { 'city': 6, 'landmark': 8, 'toll': 7, 'transport': 7, 'town': 9, 'junction': 9 };
+  for (var i = 0; i < LANDMARKS.length; i++) {
+    var lm = LANDMARKS[i];
+    if (mapZoom < (minZoom[lm.type]||8)) continue;
+    var pt = latLonToPixel(lm.lat, lm.lon);
+    var dx = pt.x - mx, dy = pt.y - my;
+    if (Math.sqrt(dx*dx+dy*dy) < 16) {
+      document.getElementById('lmPopupIcon').textContent = lm.icon;
+      document.getElementById('lmPopupName').textContent = lm.name;
+      document.getElementById('lmPopupDesc').textContent = lm.desc || lm.type;
+      document.getElementById('lmPopup').style.display = 'block';
+      return;
+    }
+  }
+  document.getElementById('lmPopup').style.display = 'none';
+});
+
+// Touch/drag pan
+var drag={active:false,sx:0,sy:0,clat:0,clon:0};
+canvas.addEventListener('touchstart',function(e){
+  if(e.touches.length===1){drag.active=true;drag.sx=e.touches[0].clientX;drag.sy=e.touches[0].clientY;drag.clat=mapCenterLat;drag.clon=mapCenterLon;autoFollow=false;}
+});
+canvas.addEventListener('touchmove',function(e){
+  e.preventDefault();
+  if(!drag.active||e.touches.length!==1)return;
+  var dx=e.touches[0].clientX-drag.sx, dy=e.touches[0].clientY-drag.sy;
+  var scale=Math.pow(2,mapZoom)*256;
+  mapCenterLon=drag.clon-dx/scale*360;
+  mapCenterLat=drag.clat+dy/scale*180;
+  drawMap();
+},{passive:false});
+canvas.addEventListener('touchend',function(){drag.active=false;});
+
+// ─── State crossing ───────────────────────────────────────────────────────────
+var toastTimer = null;
+function showStateCrossing(state) {
+  document.getElementById('toastFlag').textContent = state.emoji;
+  document.getElementById('toastState').textContent = state.name + ' State';
+  document.getElementById('toastSub').textContent = '🏛 Capital: ' + state.capital + (state.pop ? '  👥 Pop: ' + state.pop : '');
+  var toast = document.getElementById('stateCrossToast');
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ toast.classList.remove('show'); }, 5000);
+  document.getElementById('mapStateLabel').textContent = state.emoji + ' ' + state.name;
+  document.getElementById('mapStateLabel').classList.add('show');
+  document.getElementById('currentStatePill').textContent = state.emoji + ' ' + state.name;
+  addLog('Entered ' + state.name + ' State — Capital: ' + state.capital, 'state', state.emoji);
+  if (!statesCrossed.includes(state.name)) { statesCrossed.push(state.name); }
+  document.getElementById('statesStat').textContent = statesCrossed.length;
+  if (navigator.vibrate) navigator.vibrate([200,100,200]);
+  // Audio beep
+  try {
+    var ac = new (window.AudioContext||window.webkitAudioContext)();
+    var osc = ac.createOscillator(); var g = ac.createGain();
+    osc.connect(g); g.connect(ac.destination);
+    osc.frequency.value = 660; g.gain.setValueAtTime(0.3, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.6);
+    osc.start(); osc.stop(ac.currentTime+0.6);
+  } catch(e){}
+}
+
+// ─── Nearby landmark alert ────────────────────────────────────────────────────
+var alertedLandmarks = {};
+function checkNearbyLandmarks(lat, lon) {
+  for (var i = 0; i < LANDMARKS.length; i++) {
+    var lm = LANDMARKS[i];
+    if (alertedLandmarks[lm.name]) continue;
+    var d = calcDist(lat, lon, lm.lat, lm.lon);
+    var threshold = lm.type==='toll' ? 1.0 : lm.type==='city' ? 2.0 : 0.5;
+    if (d < threshold) {
+      alertedLandmarks[lm.name] = true;
+      if (lm.type === 'toll') {
+        addLog('🚧 Toll gate ahead: ' + lm.name + (lm.desc ? ' — ' + lm.desc : ''), 'state', '🚧');
+        if (navigator.vibrate) navigator.vibrate([100,50,100]);
+      } else if (lm.type === 'city') {
+        addLog('Approaching ' + lm.icon + ' ' + lm.name + (lm.desc ? ' — ' + lm.desc : ''), 'location', lm.icon);
+      } else {
+        addLog('Near: ' + lm.icon + ' ' + lm.name + (lm.desc ? ' — ' + lm.desc : ''), 'location', '📍');
+      }
+    }
+  }
+}
+
+// ─── Autosave ─────────────────────────────────────────────────────────────────
+var saveTimer2 = null;
+function scheduleSave(){ clearTimeout(saveTimer2); saveTimer2=setTimeout(saveState,2000); }
+function saveState(){
+  try {
+    localStorage.setItem('jt2_pos',JSON.stringify(positions));
+    localStorage.setItem('jt2_wp',JSON.stringify(waypoints));
+    localStorage.setItem('jt2_log',JSON.stringify(logItems));
+    localStorage.setItem('jt2_dist',totalDistance+'');
+    localStorage.setItem('jt2_states',JSON.stringify(statesCrossed));
+    var ind=document.getElementById('saveIndicator');
+    ind.classList.add('show'); setTimeout(function(){ind.classList.remove('show');},1800);
+  }catch(e){}
+}
+function loadState(){
+  try {
+    var p=localStorage.getItem('jt2_pos'),w=localStorage.getItem('jt2_wp');
+    var l=localStorage.getItem('jt2_log'),d=localStorage.getItem('jt2_dist');
+    var sc=localStorage.getItem('jt2_states');
+    if(p) positions=JSON.parse(p);
+    if(w) waypoints=JSON.parse(w);
+    if(l) logItems=JSON.parse(l);
+    if(d) totalDistance=parseFloat(d);
+    if(sc) statesCrossed=JSON.parse(sc);
+    if(positions.length>0){
+      var last=positions[positions.length-1];
+      mapCenterLat=last[0]; mapCenterLon=last[1]; mapZoom=10;
+      document.getElementById('restoredBanner').classList.add('show');
+      document.getElementById('coordsText').innerHTML='<span>'+last[0].toFixed(5)+'</span>, <span>'+last[1].toFixed(5)+'</span>';
+      // Detect current state
+      var st=detectState(last[0],last[1]);
+      if(st){ currentState=st; document.getElementById('currentStatePill').textContent=st.emoji+' '+st.name; document.getElementById('mapStateLabel').textContent=st.emoji+' '+st.name; document.getElementById('mapStateLabel').classList.add('show');
+        // Seed distIntoState from saved positions
+        if(positions.length>1){
+          distIntoState=0; var inState=false;
+          for(var pi=0;pi<positions.length;pi++){
+            var ps=detectState(positions[pi][0],positions[pi][1]);
+            if(ps&&ps.name===st.name){
+              if(!inState){inState=true;}
+              else{distIntoState+=calcDist(positions[pi-1][0],positions[pi-1][1],positions[pi][0],positions[pi][1]);}
+            }
+          }
+          lastStateCheckPos=[positions[positions.length-1][0],positions[positions.length-1][1]];
+        }
+        updateStateBar(last[0],last[1]);
+      }
+      // Rebuild log
+      var section=document.getElementById('logSection'); section.innerHTML='';
+      for(var i=logItems.length-1;i>=0;i--){
+        var item=logItems[i]; var el=document.createElement('div');
+        el.className='log-entry '+item.type;
+        el.innerHTML='<div class="log-icon">'+item.icon+'</div><div class="log-content"><div class="log-text">'+item.text+'</div><div class="log-time">'+item.time+'</div></div>';
+        section.insertBefore(el,section.firstChild);
+      }
+      document.getElementById('statesStat').textContent=statesCrossed.length;
+      updateStats(); setTimeout(drawMap,100);
+    }
+  }catch(e){}
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function calcDist(la1,lo1,la2,lo2){
+  var R=6371,dLat=(la2-la1)*Math.PI/180,dLon=(lo2-lo1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// Minimum distance from a point to a polygon edge (state boundary)
+function distToStateBorder(lat, lon, state) {
+  var poly = state.bounds, minD = Infinity;
+  for (var i = 0, j = poly.length-1; i < poly.length; j=i++) {
+    // closest point on segment [poly[j]→poly[i]]
+    var ax=poly[j][0],ay=poly[j][1], bx=poly[i][0],by=poly[i][1];
+    var dx=bx-ax, dy=by-ay, lenSq=dx*dx+dy*dy;
+    var t = lenSq===0 ? 0 : Math.max(0, Math.min(1, ((lat-ax)*dx+(lon-ay)*dy)/lenSq));
+    var cx=ax+t*dx, cy=ay+t*dy;
+    var d=calcDist(lat,lon,cx,cy);
+    if(d<minD) minD=d;
+  }
+  return minD;
+}
+
+// Find the closest OTHER state and its distance
+function nearestOtherState(lat, lon) {
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < NIGERIA_STATES.length; i++) {
+    var s = NIGERIA_STATES[i];
+    if (currentState && s.name === currentState.name) continue;
+    var d = distToStateBorder(lat, lon, s);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return { state: best, dist: bestD };
+}
+
+function updateStateBar(lat, lon) {
+  if (!currentState) {
+    document.getElementById('stateDistBar').style.display = 'none';
+    return;
+  }
+  document.getElementById('stateDistBar').style.display = 'block';
+
+  // Distance into current state
+  document.getElementById('distIntoStateVal').textContent = distIntoState.toFixed(1);
+  document.getElementById('stateIntoName').textContent = currentState.name;
+
+  // Distance to nearest other state border
+  var next = nearestOtherState(lat, lon);
+  var toNext = next.dist;
+  document.getElementById('distToNextStateVal').textContent = toNext.toFixed(1);
+  document.getElementById('stateNextName').textContent = next.state ? next.state.name : 'border';
+  document.getElementById('stateNextLabel').textContent = next.state ? next.state.emoji+' '+next.state.name : 'border';
+
+  // Progress fill: how far through the state (entry→exit)
+  var total = distIntoState + toNext;
+  var pct = total > 0 ? Math.min(99, Math.round((distIntoState / total) * 100)) : 0;
+  document.getElementById('stateProgressFill').style.width = pct + '%';
+  document.getElementById('stateProgressDot').style.left = pct + '%';
+  document.getElementById('stateEntryLabel').textContent = currentState.emoji + ' Entered';
+  document.getElementById('stateNextLabel').textContent = next.state ? next.state.emoji+' '+next.state.name : '— border';
+
+  // Warn when <15 km from next state
+  var bar = document.getElementById('stateDistBar');
+  if (toNext < 15) {
+    bar.style.borderColor = '#ff6b35';
+    if (toNext < 5 && !bar._warnedClose) {
+      bar._warnedClose = true;
+      addLog('⚠️ Crossing into ' + (next.state ? next.state.name : 'next state') + ' in ~' + toNext.toFixed(1) + ' km', 'state', '🗺️');
+      if (navigator.vibrate) navigator.vibrate([80,40,80]);
+    }
+  } else {
+    bar.style.borderColor = '';
+    bar._warnedClose = false;
+  }
+}
+function formatTime(d){ return new Date(d).toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit',hour12:true}); }
+function updateStats(){
+  var OWERRI_LAT=5.483, OWERRI_LON=7.033;
+  document.getElementById('distStat').textContent=totalDistance.toFixed(1);
+  if(positions.length>0){var l=positions[positions.length-1]; document.getElementById('etaStat').textContent=calcDist(l[0],l[1],OWERRI_LAT,OWERRI_LON).toFixed(0);}
+  document.getElementById('speedStat').textContent=lastSpeed!==null?Math.round(lastSpeed):'—';
+  document.getElementById('statesStat').textContent=statesCrossed.length;
+}
+function addLog(text,type,icon){
+  var now=new Date().toISOString();
+  logItems.push({text:text,type:type,icon:icon,time:formatTime(now)});
+  var section=document.getElementById('logSection');
+  if(section.querySelector('.empty-log'))section.innerHTML='';
+  var el=document.createElement('div');
+  el.className='log-entry '+type;
+  el.innerHTML='<div class="log-icon">'+icon+'</div><div class="log-content"><div class="log-text">'+text+'</div><div class="log-time">'+formatTime(now)+'</div></div>';
+  section.insertBefore(el,section.firstChild);
+}
+
+// ─── GPS ──────────────────────────────────────────────────────────────────────
+function onPosition(pos){
+  var lat=pos.coords.latitude, lon=pos.coords.longitude;
+  lastSpeed=pos.coords.speed?pos.coords.speed*3.6:null;
+  document.getElementById('coordsText').innerHTML='<span>'+lat.toFixed(5)+'</span>, <span>'+lon.toFixed(5)+'</span>';
+
+  var moved=false;
+  if(positions.length>0){
+    var prev=positions[positions.length-1],d=calcDist(prev[0],prev[1],lat,lon);
+    if(d>0.005){totalDistance+=d;positions.push([lat,lon]);moved=true;}
+  } else {
+    positions.push([lat,lon]); moved=true;
+    addLog('Journey started — '+lat.toFixed(4)+', '+lon.toFixed(4),'location','🚌');
+  }
+
+  if(moved){
+    // Accumulate distance within current state
+    if(lastStateCheckPos) {
+      distIntoState += calcDist(lastStateCheckPos[0],lastStateCheckPos[1],lat,lon);
+    }
+    lastStateCheckPos = [lat, lon];
+
+    // State crossing check
+    var st=detectState(lat,lon);
+    if(st&&(!currentState||currentState.name!==st.name)){
+      currentState=st;
+      stateEntryPos=[lat,lon];
+      distIntoState=0;
+      lastStateCheckPos=[lat,lon];
+      showStateCrossing(st);
+    }
+    checkNearbyLandmarks(lat,lon);
+    updateStateBar(lat,lon);
+    if(autoFollow){mapCenterLat=lat;mapCenterLon=lon;}
+    drawMap(); updateStats(); scheduleSave();
+  }
+}
+function onError(err){
+  var msgs={1:'Location permission denied.',2:'GPS signal unavailable.',3:'GPS timed out, retrying...'};
+  document.getElementById('coordsText').textContent='⚠️ '+(msgs[err.code]||'GPS error');
+}
+
+// ─── Controls ─────────────────────────────────────────────────────────────────
+function toggleTracking(){
+  if(!tracking){
+    if(!navigator.geolocation){alert('Geolocation not supported.');return;}
+    tracking=true;
+    document.getElementById('trackBtn').textContent='⏸ Pause';
+    document.getElementById('trackBtn').style.background='#ff6b35';
+    document.getElementById('statusBadge').textContent='TRACKING';
+    document.getElementById('statusBadge').classList.add('active');
+    document.getElementById('logoDot').classList.add('recording');
+    watchId=navigator.geolocation.watchPosition(onPosition,onError,{enableHighAccuracy:true,timeout:20000,maximumAge:5000});
+  } else {
+    tracking=false;
+    document.getElementById('trackBtn').textContent='▶ Resume';
+    document.getElementById('trackBtn').style.background='';
+    document.getElementById('statusBadge').textContent='PAUSED';
+    document.getElementById('statusBadge').classList.remove('active');
+    document.getElementById('logoDot').classList.remove('recording');
+    if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+    addLog('Tracking paused','location','⏸'); saveState();
+  }
+}
+function addWaypoint(){
+  var input=document.getElementById('waypointInput'),note=input.value.trim();
+  if(!note)return;
+  if(positions.length===0){alert('Start tracking first.');return;}
+  var last=positions[positions.length-1];
+  waypoints.push({lat:last[0],lon:last[1],note:note});
+  addLog(note,'waypoint','📌'); input.value=''; drawMap(); scheduleSave();
+}
+document.getElementById('waypointInput').addEventListener('keydown',function(e){if(e.key==='Enter')addWaypoint();});
+function confirmClear(){document.getElementById('clearModal').classList.add('show');}
+function closeClearModal(){document.getElementById('clearModal').classList.remove('show');}
+function clearAll(){
+  if(tracking)toggleTracking();
+  positions=[];waypoints=[];logItems=[];totalDistance=0;lastSpeed=null;currentState=null;statesCrossed=[];alertedLandmarks={};
+  stateEntryPos=null; distIntoState=0; lastStateCheckPos=null;
+  document.getElementById('stateDistBar').style.display='none';
+  try{['jt2_pos','jt2_wp','jt2_log','jt2_dist','jt2_states'].forEach(function(k){localStorage.removeItem(k);});}catch(e){}
+  document.getElementById('logSection').innerHTML='<div class="empty-log">Your journey log will appear here once you start tracking.</div>';
+  document.getElementById('coordsText').textContent='📡 Waiting for GPS signal...';
+  document.getElementById('trackBtn').textContent='▶ Start Tracking';
+  document.getElementById('trackBtn').style.background='';
+  document.getElementById('statusBadge').textContent='IDLE';
+  document.getElementById('statusBadge').classList.remove('active');
+  document.getElementById('logoDot').classList.remove('recording');
+  document.getElementById('restoredBanner').classList.remove('show');
+  document.getElementById('mapStateLabel').classList.remove('show');
+  document.getElementById('currentStatePill').textContent='—';
+  mapCenterLat=9.0;mapCenterLon=7.5;mapZoom=7;autoFollow=true;
+  updateStats(); drawMap(); closeClearModal();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+loadState();
+</script>
+</body>
+</html>
